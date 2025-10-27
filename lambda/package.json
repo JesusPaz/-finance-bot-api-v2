@@ -1,0 +1,20 @@
+{
+  "name": "pdf-processor-lambda",
+  "version": "1.0.0",
+  "description": "Lambda function for processing PDFs with qpdf",
+  "main": "workers/pdf-processor.js",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "@aws-sdk/s3-presigned-post": "^3.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["aws", "lambda", "pdf", "qpdf"],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,41 @@
+FROM amazonlinux:2
+
+# Instalar dependencias mínimas
+RUN yum update -y && \
+    yum install -y \
+    wget \
+    tar \
+    gzip \
+    gcc \
+    gcc-c++ \
+    make \
+    cmake \
+    libjpeg-turbo-devel \
+    zlib-devel
+
+# Crear directorio de trabajo
+WORKDIR /build
+
+# Descargar y compilar qpdf
+RUN wget https://github.com/qpdf/qpdf/releases/download/v11.6.3/qpdf-11.6.3.tar.gz && \
+    tar -xzf qpdf-11.6.3.tar.gz && \
+    cd qpdf-11.6.3 && \
+    ./configure --disable-static --disable-doc --prefix=/opt && \
+    make -j2 && \
+    make install
+
+# Crear estructura del layer
+RUN mkdir -p /layer/bin /layer/lib
+
+# Copiar binarios
+RUN cp /opt/bin/qpdf /layer/bin/ && \
+    cp /opt/lib/libqpdf.so* /layer/lib/ 2>/dev/null || true
+
+# Copiar dependencias dinámicas
+RUN ldd /opt/bin/qpdf | grep -E "(libjpeg|libz)" | awk '{print $3}' | xargs -I {} cp {} /layer/lib/ 2>/dev/null || true
+
+# Crear script wrapper
+RUN echo '#!/bin/bash' > /layer/bin/qpdf-wrapper && \
+    echo 'export LD_LIBRARY_PATH=/opt/lib:$LD_LIBRARY_PATH' >> /layer/bin/qpdf-wrapper && \
+    echo '/opt/bin/qpdf "$@"' >> /layer/bin/qpdf-wrapper && \
+    chmod +x /layer/bin/qpdf-wrapper

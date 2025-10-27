@@ -1,0 +1,23 @@
+#!/bin/bash
+# qpdf wrapper para Lambda
+# Este es un placeholder - necesitas un binario real de qpdf
+
+echo "qpdf version 12.2.0 (placeholder)" >&2
+echo "This is a placeholder qpdf binary for Lambda" >&2
+echo "In production, you need a real qpdf binary compiled for Amazon Linux 2" >&2
+
+# Simular comportamiento básico
+if [ "$1" = "--version" ]; then
+    echo "qpdf version 12.2.0 (placeholder)"
+    exit 0
+fi
+
+if [ "$1" = "--help" ]; then
+    echo "qpdf placeholder - not a real binary"
+    exit 0
+fi
+
+# Para otros comandos, mostrar error
+echo "Error: This is a placeholder qpdf binary" >&2
+echo "You need to replace this with a real qpdf binary compiled for Amazon Linux 2" >&2
+exit 1
