@@ -17,8 +17,9 @@ const logger = createLogger('transaction-parser');
 function parseTransactions(text, metadata = {}) {
   const { sourceDocumentId, auth0UserId, userEmail, documentType } = metadata;
   
-  logger.info('Parseando transacciones', {
+  logger.info('📊 [DEBUG] === INICIO parseTransactions ===', {
     textLength: text.length,
+    linesCount: text.split('\n').length,
     sourceDocumentId,
     auth0UserId
   });
@@ -30,6 +31,12 @@ function parseTransactions(text, metadata = {}) {
   const datePattern = /(\d{2}\/\d{2}\/\d{4})/; // DD/MM/YYYY
   const amountPattern = /\$\s*([\d.,]+)/g; // $123.456,00
   
+  logger.info('🔍 [DEBUG] Iniciando búsqueda de transacciones', {
+    totalLines: lines.length,
+    datePattern: datePattern.toString(),
+    amountPattern: amountPattern.toString()
+  });
+  
   let inTransactionSection = false;
   
   for (let i = 0; i < lines.length; i++) {
@@ -40,7 +47,7 @@ function parseTransactions(text, metadata = {}) {
         line.includes('Movimientos') ||
         (line.includes('Número de') && line.includes('autorización'))) {
       inTransactionSection = true;
-      logger.debug(`Sección de transacciones encontrada en línea ${i + 1}`);
+      logger.info(`✅ [DEBUG] Sección de transacciones encontrada en línea ${i + 1}`, { line });
       continue;
     }
     
@@ -52,6 +59,7 @@ function parseTransactions(text, metadata = {}) {
       const amounts = [...line.matchAll(amountPattern)];
       
       if (hasDate && amounts.length > 0) {
+        logger.info(`💰 [DEBUG] Línea ${i + 1} tiene fecha y monto`, { line });
         
         // Extraer fecha
         const dateMatch = line.match(datePattern);
@@ -134,10 +142,14 @@ function parseTransactions(text, metadata = {}) {
     }
   }
   
-  logger.info('Transacciones parseadas', { 
+  logger.info('✅ [DEBUG] Transacciones parseadas', { 
     count: transactions.length,
     debits: transactions.filter(t => t.type === 'DEBIT').length,
     credits: transactions.filter(t => t.type === 'CREDIT').length
+  });
+  
+  logger.info('🎉 [DEBUG] === FIN parseTransactions ===', {
+    totalTransactions: transactions.length
   });
   
   return transactions;

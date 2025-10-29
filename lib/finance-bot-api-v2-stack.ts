@@ -18,6 +18,25 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
       bucketName: 'finances-data-851725652296',
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.GET,
+            s3.HttpMethods.POST,
+            s3.HttpMethods.PUT,
+            s3.HttpMethods.HEAD,
+          ],
+          allowedOrigins: ['*'], // En producción, especificar dominios exactos
+          allowedHeaders: ['*'],
+          exposedHeaders: [
+            'ETag',
+            'x-amz-server-side-encryption',
+            'x-amz-request-id',
+            'x-amz-id-2',
+          ],
+          maxAge: 3000,
+        },
+      ],
     });
 
     // SQS Queue para procesar PDFs
@@ -118,6 +137,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       description: 'API: Genera presigned URLs para subir PDFs',
+      tracing: lambda.Tracing.ACTIVE, // ✅ Activar X-Ray
     });
 
     documentsBucket.grantPut(presignLambda);
@@ -137,6 +157,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
             LOG_LEVEL: 'INFO',
           },
           description: 'Worker: Procesa PDFs y extrae transacciones a DynamoDB',
+          tracing: lambda.Tracing.ACTIVE, // ✅ Activar X-Ray
         });
 
     // Permisos para el worker
@@ -171,6 +192,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,
       description: 'Authorizer: Valida JWT de Auth0',
+      tracing: lambda.Tracing.ACTIVE, // ✅ Activar X-Ray
     });
 
     // API Gateway simple
@@ -188,7 +210,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
     const authorizer = new apigateway.TokenAuthorizer(this, 'Auth0TokenAuthorizer', {
       handler: authorizerLambda,
       identitySource: 'method.request.header.Authorization',
-      resultsCacheTtl: cdk.Duration.minutes(5), // Cache de 5 minutos
+      resultsCacheTtl: cdk.Duration.seconds(0), // Sin caché para evitar problemas durante desarrollo
     });
 
     // Lambda para GET /transactions
@@ -203,6 +225,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       description: 'API: Obtiene transacciones de DynamoDB',
+      tracing: lambda.Tracing.ACTIVE, // ✅ Activar X-Ray
     });
 
     transactionsTable.grantReadData(getTransactionsLambda);
@@ -219,6 +242,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       description: 'API: Lista documentos subidos por el usuario',
+      tracing: lambda.Tracing.ACTIVE, // ✅ Activar X-Ray
     });
 
     documentUploadsTable.grantReadData(listDocumentsLambda);
@@ -235,6 +259,7 @@ export class FinanceBotApiV2Stack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       description: 'API: Obtiene detalle de un documento específico',
+      tracing: lambda.Tracing.ACTIVE, // ✅ Activar X-Ray
     });
 
     documentUploadsTable.grantReadData(getDocumentDetailLambda);

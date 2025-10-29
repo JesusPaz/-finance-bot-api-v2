@@ -6,6 +6,9 @@
  * - Guarda en DynamoDB con validación de duplicados
  */
 
+// ✅ Importar X-Ray primero
+const AWSXRay = require('aws-xray-sdk-core');
+
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, BatchWriteCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
@@ -20,8 +23,9 @@ const {
 } = require('../shared/document-tracker');
 const { DocumentStatus, ErrorType } = require('../shared/document-status');
 
-const s3 = new S3Client();
-const dynamoClient = new DynamoDBClient();
+// ✅ Instrumentar clientes AWS con X-Ray
+const s3 = AWSXRay.captureAWSv3Client(new S3Client());
+const dynamoClient = AWSXRay.captureAWSv3Client(new DynamoDBClient());
 const dynamo = DynamoDBDocumentClient.from(dynamoClient);
 
 const logger = createLogger('pdf-processor');
@@ -33,21 +37,24 @@ const PASSWORDS_TABLE = process.env.PASSWORDS_TABLE_NAME;
  * Handler principal
  */
 exports.handler = async (event) => {
-  logger.info('Worker iniciado', {
+  logger.info('🚀 [DEBUG] ===== WORKER LAMBDA INICIADO =====', {
     records: event.Records?.length || 0,
-    bodyPreview: event.body?.substring(0, 200)
+    timestamp: new Date().toISOString()
   });
 
   try {
-    for (const record of event.Records) {
+    for (let i = 0; i < event.Records.length; i++) {
+      const record = event.Records[i];
+      logger.info(`📋 [DEBUG] Procesando record ${i + 1}/${event.Records.length}`);
       await processRecord(record);
+      logger.info(`✅ [DEBUG] Record ${i + 1}/${event.Records.length} procesado exitosamente`);
     }
 
-    logger.info('Procesamiento completado exitosamente');
+    logger.info('🎉 [DEBUG] ===== WORKER COMPLETADO EXITOSAMENTE =====');
     return { statusCode: 200, body: 'OK' };
 
   } catch (error) {
-    logger.error('Error en handler', { 
+    logger.error('💥 [DEBUG] ===== ERROR FATAL EN HANDLER =====', { 
       error: error.message,
       stack: error.stack 
     });
@@ -59,13 +66,16 @@ exports.handler = async (event) => {
  * Procesa un registro de SQS
  */
 async function processRecord(record) {
+  logger.info('📥 [DEBUG] Iniciando processRecord');
+  
   try {
     // Parse S3 event desde SQS
+    logger.info('🔍 [DEBUG] Parseando SQS body...');
     const sqsBody = JSON.parse(record.body);
     const s3Event = sqsBody.Records?.[0];
 
     if (!s3Event) {
-      logger.error('No se encontró evento S3 en el mensaje SQS');
+      logger.error('❌ [DEBUG] No se encontró evento S3 en el mensaje SQS');
       return;
     }
 
@@ -74,7 +84,7 @@ async function processRecord(record) {
     const eventName = s3Event.eventName;
     const sizeKB = (s3Event.s3.object.size / 1024).toFixed(2);
 
-    logger.info('Evento S3 parseado', { bucket, key, eventName, sizeKB });
+    logger.info('📦 [DEBUG] Evento S3 parseado', { bucket, key, eventName, sizeKB });
 
     // Solo procesar PDFs en la carpeta pdfs/
     if (!key.startsWith('pdfs/')) {
@@ -153,42 +163,61 @@ async function processRecord(record) {
     }
 
     // **PASO 1: Extraer texto del PDF**
-    logger.info('🔍 Iniciando extracción de texto...');
+    logger.info('🔍 [DEBUG] INICIANDO EXTRACCIÓN DE TEXTO', {
+      documentId,
+      hasPassword,
+      passwordFound: !!password,
+      bucket,
+      key
+    });
     
     // 🔄 ACTUALIZAR ESTADO: DECRYPTING (si tiene contraseña) o EXTRACTING_TEXT
     if (hasPassword && password) {
+      logger.info('🔐 [DEBUG] Actualizando estado a DECRYPTING');
       await updateDocumentStatus(auth0UserId, documentId, DocumentStatus.DECRYPTING);
     } else {
+      logger.info('📄 [DEBUG] Actualizando estado a EXTRACTING_TEXT');
       await updateDocumentStatus(auth0UserId, documentId, DocumentStatus.EXTRACTING_TEXT);
     }
 
+    logger.info('⏳ [DEBUG] Llamando a extractTextFromPDF...');
     let text;
     try {
       text = await extractTextFromPDF(bucket, key, {
         password: password // Usar contraseña de DynamoDB
       });
+      logger.info('✅ [DEBUG] extractTextFromPDF completado exitosamente');
     } catch (extractError) {
-      logger.error('❌ Error extrayendo texto del PDF', { error: extractError.message });
+      logger.error('❌ [DEBUG] Error extrayendo texto del PDF', { 
+        error: extractError.message,
+        stack: extractError.stack,
+        documentId
+      });
       
       // Determinar tipo de error
       if (extractError.message.includes('password') || extractError.message.includes('contraseña')) {
+        logger.error('🔑 [DEBUG] Error de contraseña detectado');
         await markPasswordError(auth0UserId, documentId, `Error de contraseña: ${extractError.message}`);
       } else {
+        logger.error('💥 [DEBUG] Error de extracción general');
         await markDocumentFailed(auth0UserId, documentId, ErrorType.EXTRACTION_FAILED, extractError.message);
       }
       
       throw extractError;
     }
 
-    logger.info('✅ Texto extraído', {
+    logger.info('✅ [DEBUG] Texto extraído', {
       lengthChars: text.length,
-      lengthLines: text.split('\n').length
+      lengthLines: text.split('\n').length,
+      firstLines: text.split('\n').slice(0, 5).join(' | '), // Primeras 5 líneas
+      documentId
     });
 
     // **PASO 2: Parsear transacciones**
-    logger.info('🔍 Parseando transacciones...');
+    logger.info('🔍 [DEBUG] INICIANDO PARSEO DE TRANSACCIONES', { documentId });
 
     // 🔄 ACTUALIZAR ESTADO: PARSING
+    logger.info('📊 [DEBUG] Actualizando estado a PARSING');
     await updateDocumentStatus(auth0UserId, documentId, DocumentStatus.PARSING);
 
     // Generar ID único para este documento
@@ -196,26 +225,38 @@ async function processRecord(record) {
 
     let transactions;
     try {
+      logger.info('⏳ [DEBUG] Llamando a parseTransactions...');
       transactions = parseTransactions(text, {
         sourceDocumentId,
         auth0UserId, // Usar auth0UserId en lugar de userId
         userEmail,
         documentType
       });
+      logger.info('✅ [DEBUG] parseTransactions completado');
 
-      logger.info('✅ Transacciones parseadas', {
+      logger.info('✅ [DEBUG] Transacciones parseadas', {
         count: transactions.length,
         debits: transactions.filter(t => t.type === 'DEBIT').length,
-        credits: transactions.filter(t => t.type === 'CREDIT').length
+        credits: transactions.filter(t => t.type === 'CREDIT').length,
+        firstTransaction: transactions.length > 0 ? {
+          date: transactions[0].date,
+          merchant: transactions[0].merchant,
+          amount: transactions[0].amount
+        } : null,
+        documentId
       });
 
       if (transactions.length === 0) {
-        logger.warn('⚠️  No se encontraron transacciones en el PDF');
+        logger.warn('⚠️  [DEBUG] No se encontraron transacciones en el PDF');
         await markDocumentFailed(auth0UserId, documentId, ErrorType.NO_TRANSACTIONS_FOUND, 'No se encontraron transacciones en el documento');
         throw new Error('No se encontraron transacciones');
       }
     } catch (parseError) {
-      logger.error('❌ Error parseando transacciones', { error: parseError.message });
+      logger.error('❌ [DEBUG] Error parseando transacciones', { 
+        error: parseError.message,
+        stack: parseError.stack,
+        documentId
+      });
       if (parseError.message !== 'No se encontraron transacciones') {
         await markDocumentFailed(auth0UserId, documentId, ErrorType.PARSING_FAILED, parseError.message);
       }
@@ -223,25 +264,41 @@ async function processRecord(record) {
     }
 
     // **PASO 3: Guardar en DynamoDB con validación de duplicados**
-    logger.info('💾 Guardando transacciones en DynamoDB...');
+    logger.info('💾 [DEBUG] INICIANDO GUARDADO EN DYNAMODB', { 
+      transactionsCount: transactions.length,
+      documentId
+    });
 
     let result;
     try {
+      logger.info('⏳ [DEBUG] Llamando a saveTransactions...');
       result = await saveTransactions(transactions);
+      logger.info('✅ [DEBUG] saveTransactions completado');
 
-      logger.info('✅ Transacciones guardadas', {
+      logger.info('✅ [DEBUG] Transacciones guardadas', {
         saved: result.saved,
         duplicates: result.duplicates,
-        errors: result.errors
+        errors: result.errors,
+        documentId
       });
     } catch (saveError) {
-      logger.error('❌ Error guardando transacciones', { error: saveError.message });
+      logger.error('❌ [DEBUG] Error guardando transacciones', { 
+        error: saveError.message,
+        stack: saveError.stack,
+        documentId
+      });
       await markDocumentFailed(auth0UserId, documentId, ErrorType.DYNAMODB_ERROR, saveError.message);
       throw saveError;
     }
 
     // **PASO 4: Marcar como COMPLETADO**
     const processingTimeMs = Date.now() - processingStartTime;
+    
+    logger.info('🎉 [DEBUG] Marcando documento como completado', {
+      documentId,
+      transactionsCount: transactions.length,
+      processingTimeMs
+    });
     
     await markDocumentCompleted(auth0UserId, documentId, transactions.length, processingTimeMs);
 

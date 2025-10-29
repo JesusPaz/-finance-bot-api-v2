@@ -8,6 +8,7 @@
     "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0",
     "@aws-sdk/s3-presigned-post": "^3.0.0",
+    "aws-xray-sdk-core": "^3.5.0",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.1.0"
   },

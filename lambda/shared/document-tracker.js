@@ -2,11 +2,15 @@
  * Helper para actualizar el estado de documentos en document-uploads
  */
 
+// ✅ Importar X-Ray primero
+const AWSXRay = require('aws-xray-sdk-core');
+
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { DocumentStatus, ErrorType } = require('./document-status');
 
-const dynamoClient = new DynamoDBClient();
+// ✅ Instrumentar DynamoDB con X-Ray
+const dynamoClient = AWSXRay.captureAWSv3Client(new DynamoDBClient());
 const dynamo = DynamoDBDocumentClient.from(dynamoClient);
 
 const UPLOADS_TABLE = process.env.UPLOADS_TABLE_NAME;
@@ -106,7 +110,7 @@ async function markPasswordError(auth0UserId, documentId, errorMessage) {
     errorType: ErrorType.PASSWORD_INCORRECT,
     errorMessage,
     failedAt: new Date().toISOString(),
-    'metadata.canRetry': true
+    canRetry: true
   });
 }
 
@@ -116,7 +120,7 @@ async function markPasswordError(auth0UserId, documentId, errorMessage) {
 async function markDocumentCompleted(auth0UserId, documentId, transactionsExtracted, processingTimeMs) {
   await updateDocumentStatus(auth0UserId, documentId, DocumentStatus.COMPLETED, {
     transactionsExtracted,
-    'metadata.processingTimeMs': processingTimeMs
+    processingTimeMs: processingTimeMs
   });
 }
 
